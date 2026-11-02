@@ -6,18 +6,44 @@
 (function (Scratch) {
   'use strict';
 
+  const MAX_TEXT_LENGTH = 128;
+  const hasDiscord = typeof discord !== 'undefined';
+
+  const toText = (value) => Scratch.Cast.toString(value).slice(0, MAX_TEXT_LENGTH);
+
+  const createPresence = () => ({
+    state: '',
+    details: '',
+    largeImageKey: '',
+    largeImageText: '',
+    smallImageKey: '',
+    smallImageText: '',
+    startTimestamp: null,
+    endTimestamp: null,
+    type: 0,
+    statusDisplayType: 0,
+    partyId: '',
+    partySize: undefined,
+    partyMax: undefined,
+    joinSecret: '',
+    spectateSecret: '',
+    matchSecret: '',
+    buttons: [],
+  });
+
   class DiscordRPC {
     constructor() {
-      this.presence = {
-        state: '',
-        details: '',
-        largeImageKey: '',
-        largeImageText: '',
-        smallImageKey: '',
-        smallImageText: '',
-        startTimestamp: null,
-        endTimestamp: null,
-      };
+      this.presence = createPresence();
+      this.secrets = { join: '', spectate: '' };
+
+      if (hasDiscord) {
+        discord.onEvent((type, secret) => {
+          this.secrets[type] = secret;
+          Scratch.vm.runtime.startHats(
+            type === 'join' ? 'discordrpc_whenJoin' : 'discordrpc_whenSpectate',
+          );
+        });
+      }
     }
 
     getInfo() {
@@ -83,7 +109,7 @@
           },
 
           {
-            opcode: 'setsmallImage',
+            opcode: 'setSmallImage',
             blockType: Scratch.BlockType.COMMAND,
             text: 'set rpc small image to [IMAGE_KEY] with text [IMAGE_TEXT]',
             arguments: {
@@ -105,7 +131,7 @@
             arguments: {
               TIMESTAMP: {
                 type: Scratch.ArgumentType.NUMBER,
-                defaultValue: Date.now(),
+                defaultValue: 0,
               },
             },
           },
@@ -117,65 +143,309 @@
             arguments: {
               TIMESTAMP: {
                 type: Scratch.ArgumentType.NUMBER,
-                defaultValue: Date.now() + 3600000,
+                defaultValue: 0,
               },
             },
           },
+
+          {
+            opcode: 'clearTimestamps',
+            blockType: Scratch.BlockType.COMMAND,
+            text: 'clear rpc timestamps',
+          },
+
+          {
+            opcode: 'currentTime',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'current time (ms)',
+            disableMonitor: true,
+          },
+
+          {
+            opcode: 'setType',
+            blockType: Scratch.BlockType.COMMAND,
+            text: 'set rpc activity type to [TYPE]',
+            arguments: {
+              TYPE: {
+                type: Scratch.ArgumentType.STRING,
+                menu: 'activityType',
+              },
+            },
+          },
+
+          {
+            opcode: 'setStatusDisplay',
+            blockType: Scratch.BlockType.COMMAND,
+            text: 'show rpc [DISPLAY] in member list',
+            arguments: {
+              DISPLAY: {
+                type: Scratch.ArgumentType.STRING,
+                menu: 'statusDisplay',
+              },
+            },
+          },
+
+          {
+            opcode: 'setButton',
+            blockType: Scratch.BlockType.COMMAND,
+            text: 'set rpc button [SLOT] to [LABEL] with url [URL]',
+            arguments: {
+              SLOT: {
+                type: Scratch.ArgumentType.STRING,
+                menu: 'buttonSlot',
+              },
+              LABEL: {
+                type: Scratch.ArgumentType.STRING,
+                defaultValue: 'Play',
+              },
+              URL: {
+                type: Scratch.ArgumentType.STRING,
+                defaultValue: 'https://turbowarp.org',
+              },
+            },
+          },
+
+          {
+            opcode: 'clearActivity',
+            blockType: Scratch.BlockType.COMMAND,
+            text: 'clear rpc',
+          },
+
+          '---',
+
+          {
+            opcode: 'setParty',
+            blockType: Scratch.BlockType.COMMAND,
+            text: 'set rpc party [ID] size [SIZE] of [MAX]',
+            arguments: {
+              ID: {
+                type: Scratch.ArgumentType.STRING,
+                defaultValue: 'party',
+              },
+              SIZE: {
+                type: Scratch.ArgumentType.NUMBER,
+                defaultValue: 1,
+              },
+              MAX: {
+                type: Scratch.ArgumentType.NUMBER,
+                defaultValue: 4,
+              },
+            },
+          },
+
+          {
+            opcode: 'setSecrets',
+            blockType: Scratch.BlockType.COMMAND,
+            text: 'set rpc secrets join [JOIN] spectate [SPECTATE] match [MATCH]',
+            arguments: {
+              JOIN: {
+                type: Scratch.ArgumentType.STRING,
+                defaultValue: '',
+              },
+              SPECTATE: {
+                type: Scratch.ArgumentType.STRING,
+                defaultValue: '',
+              },
+              MATCH: {
+                type: Scratch.ArgumentType.STRING,
+                defaultValue: '',
+              },
+            },
+          },
+
+          {
+            opcode: 'whenJoin',
+            blockType: Scratch.BlockType.EVENT,
+            text: 'when player joins through discord',
+            isEdgeActivated: false,
+          },
+
+          {
+            opcode: 'whenSpectate',
+            blockType: Scratch.BlockType.EVENT,
+            text: 'when player spectates through discord',
+            isEdgeActivated: false,
+          },
+
+          {
+            opcode: 'joinSecret',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'last join secret',
+          },
+
+          {
+            opcode: 'spectateSecret',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'last spectate secret',
+          },
+
+          '---',
+
+          {
+            opcode: 'getUser',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'discord user [THING]',
+            arguments: {
+              THING: {
+                type: Scratch.ArgumentType.STRING,
+                menu: 'userInfo',
+              },
+            },
+          },
+
+          {
+            opcode: 'lastError',
+            blockType: Scratch.BlockType.REPORTER,
+            text: 'last rpc error',
+          },
         ],
-        menus: {},
+        menus: {
+          activityType: {
+            acceptReporters: false,
+            items: [
+              { text: 'playing', value: '0' },
+              { text: 'listening', value: '2' },
+              { text: 'watching', value: '3' },
+              { text: 'competing', value: '5' },
+            ],
+          },
+          statusDisplay: {
+            acceptReporters: false,
+            items: [
+              { text: 'name', value: '0' },
+              { text: 'state', value: '1' },
+              { text: 'details', value: '2' },
+            ],
+          },
+          buttonSlot: {
+            acceptReporters: false,
+            items: ['1', '2'],
+          },
+          userInfo: {
+            acceptReporters: false,
+            items: [
+              { text: 'username', value: 'username' },
+              { text: 'id', value: 'userId' },
+            ],
+          },
+        },
       };
     }
 
     initialize(args) {
-      discord.initialize(args.ID);
-      console.log(`Discord RPC initialized with client ID: ${args.ID}`);
+      if (hasDiscord) {
+        discord.initialize(Scratch.Cast.toString(args.ID));
+      }
     }
 
     isAvailable() {
-      return discord.isAvailable();
+      return hasDiscord && discord.getStatus().connected;
     }
 
     setText(args) {
-      this.presence.state = args.STATE;
-      this.presence.details = args.ACTIVITY;
+      this.presence.state = toText(args.STATE);
+      this.presence.details = toText(args.ACTIVITY);
       this._updatePresence();
     }
 
     setLargeImage(args) {
-      this.presence.largeImageKey = args.IMAGE_KEY;
-      this.presence.largeImageText = args.IMAGE_TEXT;
+      this.presence.largeImageKey = Scratch.Cast.toString(args.IMAGE_KEY);
+      this.presence.largeImageText = toText(args.IMAGE_TEXT);
       this._updatePresence();
     }
 
-    setsmallImage(args) {
-      this.presence.smallImageKey = args.IMAGE_KEY;
-      this.presence.smallImageText = args.IMAGE_TEXT;
+    setSmallImage(args) {
+      this.presence.smallImageKey = Scratch.Cast.toString(args.IMAGE_KEY);
+      this.presence.smallImageText = toText(args.IMAGE_TEXT);
       this._updatePresence();
     }
 
     startTimestamp(args) {
-      this.presence.startTimestamp = args.TIMESTAMP;
+      this.presence.startTimestamp = Scratch.Cast.toNumber(args.TIMESTAMP);
       this._updatePresence();
     }
 
     endTimestamp(args) {
-      this.presence.endTimestamp = args.TIMESTAMP;
+      this.presence.endTimestamp = Scratch.Cast.toNumber(args.TIMESTAMP);
       this._updatePresence();
     }
 
-    _updatePresence() {
-      const presence = {
-        state: this.presence.state,
-        details: this.presence.details,
-        largeImageKey: this.presence.largeImageKey,
-        largeImageText: this.presence.largeImageText,
-        smallImageKey: this.presence.smallImageKey,
-        smallImageText: this.presence.smallImageText,
-        startTimestamp: this.presence.startTimestamp,
-        endTimestamp: this.presence.endTimestamp,
-      };
+    clearTimestamps() {
+      this.presence.startTimestamp = null;
+      this.presence.endTimestamp = null;
+      this._updatePresence();
+    }
 
-      discord.setActivity(presence);
+    currentTime() {
+      return Date.now();
+    }
+
+    setType(args) {
+      this.presence.type = Scratch.Cast.toNumber(args.TYPE);
+      this._updatePresence();
+    }
+
+    setStatusDisplay(args) {
+      this.presence.statusDisplayType = Scratch.Cast.toNumber(args.DISPLAY);
+      this._updatePresence();
+    }
+
+    setButton(args) {
+      const label = Scratch.Cast.toString(args.LABEL);
+      const url = Scratch.Cast.toString(args.URL);
+      this.presence.buttons[Scratch.Cast.toNumber(args.SLOT) - 1] =
+        label && url ? { label, url } : null;
+      this._updatePresence();
+    }
+
+    clearActivity() {
+      this.presence = createPresence();
+
+      if (hasDiscord) {
+        discord.clearActivity();
+      }
+    }
+
+    setParty(args) {
+      const max = Scratch.Cast.toNumber(args.MAX);
+      this.presence.partyId = Scratch.Cast.toString(args.ID);
+      this.presence.partySize = max > 0 ? Scratch.Cast.toNumber(args.SIZE) : undefined;
+      this.presence.partyMax = max > 0 ? max : undefined;
+      this._updatePresence();
+    }
+
+    setSecrets(args) {
+      this.presence.joinSecret = Scratch.Cast.toString(args.JOIN);
+      this.presence.spectateSecret = Scratch.Cast.toString(args.SPECTATE);
+      this.presence.matchSecret = Scratch.Cast.toString(args.MATCH);
+      this._updatePresence();
+    }
+
+    joinSecret() {
+      return this.secrets.join;
+    }
+
+    spectateSecret() {
+      return this.secrets.spectate;
+    }
+
+    getUser(args) {
+      return hasDiscord ? discord.getStatus()[args.THING] ?? '' : '';
+    }
+
+    lastError() {
+      return hasDiscord ? discord.getStatus().lastError : '';
+    }
+
+    _updatePresence() {
+      if (!hasDiscord) {
+        return;
+      }
+
+      discord.setActivity({
+        ...this.presence,
+        buttons: this.presence.buttons.filter(Boolean),
+      });
     }
   }
 

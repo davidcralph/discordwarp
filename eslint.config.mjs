@@ -13,6 +13,8 @@ const compat = new FlatCompat({
 });
 
 export default defineConfig([
+  { ignores: ['dist/', 'eslint.config.mjs'] },
+
   {
     extends: compat.extends('eslint:recommended', 'prettier'),
 
